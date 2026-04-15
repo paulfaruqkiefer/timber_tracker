@@ -8,7 +8,7 @@
     <script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
     <script src="https://cdnjs.cloudflare.com/ajax/libs/PapaParse/5.3.0/papaparse.min.js"></script>
     <style>
-        :root {
+        :root 
             --fs-green: #2e4d2e; --fs-light-green: #ebf2eb; --fs-gold: #b58100;
             --fs-gray: #767676; --fs-bg: #f4f4f4;
         }
@@ -214,15 +214,10 @@ function updateMapAndStats() {
     const currentYearData = ptsarData.filter(d => d.Year === year && d.Forest !== "Region Total");
     const colorExpr = ['match', ['get', 'FORESTNAME']];
     
-    let activeCsvKey = null;
-
-    // 1. Loop through ALL geo features to build the map colors
+    // 1. Map Coloring Logic
     geoData.features.forEach(f => {
         const geoName = f.properties.FORESTNAME;
         const csvKey = findCsvKeyForForest(geoName, currentYearData);
-        
-        if (activeForest === geoName) activeCsvKey = csvKey;
-
         const data = currentYearData.find(d => d.Forest === csvKey);
         
         if (data) {
@@ -238,21 +233,20 @@ function updateMapAndStats() {
                 else if (pct >= 0.50) color = "#f4a582"; 
                 else                  color = "#ca0020"; 
             } else if (attainment > 0) {
-                color = "#0571b0"; // Sold volume without a formal target
+                color = "#0571b0"; 
             }
             colorExpr.push(geoName, color);
         }
     });
 
-    colorExpr.push('#cccccc'); // Fallback gray
+    colorExpr.push('#cccccc'); 
 
     if (window.map && window.map.getLayer('forest-fills')) {
         window.map.setPaintProperty('forest-fills', 'fill-color', colorExpr);
     }
 
-    // 2. Sidebar Logic
-    let displayData;
-    let trendData;
+    // 2. Sidebar Logic: Use the window.currentForestCsvKey we found in selectForest
+    let displayData, trendData;
 
     if (!activeForest) {
         document.getElementById('view-title').innerText = "Service-Wide View";
@@ -260,8 +254,8 @@ function updateMapAndStats() {
         trendData = ptsarData.filter(d => d.Forest === "Region Total");
     } else {
         document.getElementById('view-title').innerText = activeForest;
-        displayData = ptsarData.filter(d => d.Year === year && d.Forest === activeCsvKey);
-        trendData = ptsarData.filter(d => d.Forest === activeCsvKey);
+        displayData = ptsarData.filter(d => d.Year === year && d.Forest === window.currentForestCsvKey);
+        trendData = ptsarData.filter(d => d.Forest === window.currentForestCsvKey);
     }
 
     updateSidebarStats(displayData);
@@ -310,6 +304,20 @@ function renderTrendChart(trendData) {
 
 function selectForest(name) {
     activeForest = name;
+    
+    // FIND THE CSV KEY ONCE: Search the whole master data, not just the current year
+    const normTarget = normalizeName(name);
+    const mappedValue = FOREST_NAME_MAP[name];
+    const normMapped = mappedValue ? normalizeName(mappedValue) : null;
+
+    const match = ptsarData.find(d => {
+        const nCsv = normalizeName(d.Forest);
+        return nCsv === normTarget || nCsv === normMapped;
+    });
+
+    // Store this globally so the trend chart ALWAYS has it
+    window.currentForestCsvKey = match ? match.Forest : null;
+
     document.getElementById('back-button-container').classList.remove('nav-hidden');
     updateMapAndStats();
 }

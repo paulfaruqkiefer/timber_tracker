@@ -221,18 +221,25 @@ function updateMapAndStats() {
         const geoName = f.properties.FORESTNAME;
         const csvKey = findCsvKeyForForest(geoName, currentYearData);
         
-        // Save the key if this is our clicked forest
         if (activeForest === geoName) activeCsvKey = csvKey;
 
         const data = currentYearData.find(d => d.Forest === csvKey);
-        if (data && data.CCF_Offer > 0) {
-            const pct = data.CCF_Attainment / data.CCF_Offer;
-            let color;
-            if (pct >= 1.10)      color = "#0571b0"; 
-            else if (pct >= 0.95) color = "#92c5de"; 
-            else if (pct >= 0.85) color = "#e0f3f8"; // Distinct from gray background
-            else if (pct >= 0.50) color = "#f4a582"; 
-            else                  color = "#ca0020"; 
+        
+        if (data) {
+            const attainment = parseFloat(data.CCF_Attainment) || 0;
+            const offer = parseFloat(data.CCF_Offer) || 0;
+            let color = "#cccccc"; 
+            
+            if (offer > 0) {
+                const pct = attainment / offer;
+                if (pct >= 1.10)      color = "#0571b0"; 
+                else if (pct >= 0.95) color = "#92c5de"; 
+                else if (pct >= 0.85) color = "#e0f3f8"; 
+                else if (pct >= 0.50) color = "#f4a582"; 
+                else                  color = "#ca0020"; 
+            } else if (attainment > 0) {
+                color = "#0571b0"; // Sold volume without a formal target
+            }
             colorExpr.push(geoName, color);
         }
     });
@@ -252,7 +259,7 @@ function updateMapAndStats() {
         displayData = ptsarData.filter(d => d.Year === year && d.Forest === "Region Total");
         trendData = ptsarData.filter(d => d.Forest === "Region Total");
     } else {
-        document.getElementById('view-title').innerText = activeForest; // Clean JSON Name
+        document.getElementById('view-title').innerText = activeForest;
         displayData = ptsarData.filter(d => d.Year === year && d.Forest === activeCsvKey);
         trendData = ptsarData.filter(d => d.Forest === activeCsvKey);
     }
@@ -260,11 +267,13 @@ function updateMapAndStats() {
     updateSidebarStats(displayData);
     renderTrendChart(trendData);
 }
-
+    
 function updateSidebarStats(data) {
-    const att = data.reduce((s, d) => s + (parseFloat(d.CCF_Attainment) || 0), 0);
-    const off = data.reduce((s, d) => s + (parseFloat(d.CCF_Offer) || 0), 0);
-    const mbf = data.reduce((s, d) => s + (parseFloat(d.MBF_Attainment) || 0), 0);
+    const row = data[0] || {}; 
+    
+    const att = parseFloat(row.CCF_Attainment) || 0;
+    const off = parseFloat(row.CCF_Offer) || 0;
+    const mbf = parseFloat(row.MBF_Attainment) || 0;
     
     document.getElementById('stat-attainment').innerText = Math.round(att).toLocaleString();
     document.getElementById('stat-offer').innerText = Math.round(off).toLocaleString();

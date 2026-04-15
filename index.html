@@ -110,7 +110,7 @@ mapboxgl.accessToken = 'pk.eyJ1IjoicGtpZWZlciIsImEiOiJjbWxqeWRsNzMwNHV5M3FweTMye
 
 Promise.all([
     fetch('data/PTSAR_2006_2025_master.csv').then(r => r.text()),
-    fetch('shapefiles/national_forest_boundaries.geojson').then(r => r.json())
+    fetch('shapefiles/national_forest_boundaries.json').then(r => r.json())
 ]).then(([csvText, geoJson]) => {
     ptsarData = Papa.parse(csvText, { header: true, dynamicTyping: true, skipEmptyLines: true }).data;
     geoData = geoJson;

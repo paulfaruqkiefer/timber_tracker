@@ -184,19 +184,26 @@ function initMap() {
 function findCsvKeyForForest(jsonName, currentYearData) {
     const normGeo = normalizeName(jsonName);
     
-    // 1. Check manual map first
-    let mappedName = FOREST_NAME_MAP[jsonName];
-    if (mappedName) return mappedName;
+    // 1. Check the manual map, but NORMALIZE the result before comparing
+    // This handles the "the/The" variation in your scraper output
+    for (const [geoKey, csvValue] of Object.entries(FOREST_NAME_MAP)) {
+        if (geoKey === jsonName) {
+            const normMappedValue = normalizeName(csvValue);
+            const match = currentYearData.find(d => normalizeName(d.Forest) === normMappedValue);
+            if (match) return match.Forest;
+        }
+    }
 
-    // 2. Check direct normalization across the whole CSV
-    const match = currentYearData.find(d => normalizeName(d.Forest) === normGeo);
-    if (match) return match.Forest;
+    // 2. Direct normalization fallback (if not in the manual map)
+    const directMatch = currentYearData.find(d => normalizeName(d.Forest) === normGeo);
+    if (directMatch) return directMatch.Forest;
     
-    // 3. Fuzzy match fallback
+    // 3. Fuzzy match (last resort)
     const fuzzy = currentYearData.find(d => {
         const nCsv = normalizeName(d.Forest);
         return normGeo.includes(nCsv) || nCsv.includes(normGeo);
     });
+    
     return fuzzy ? fuzzy.Forest : null;
 }
 

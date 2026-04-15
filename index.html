@@ -8,7 +8,7 @@
     <script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
     <script src="https://cdnjs.cloudflare.com/ajax/libs/PapaParse/5.3.0/papaparse.min.js"></script>
     <style>
-        :root 
+        :root {
             --fs-green: #2e4d2e; --fs-light-green: #ebf2eb; --fs-gold: #b58100;
             --fs-gray: #767676; --fs-bg: #f4f4f4;
         }
@@ -31,17 +31,11 @@
             box-shadow: 0 0 10px rgba(0,0,0,0.2); z-index: 5; width: 200px;
         }
         .legend-gradient {
-            height: 12px;
-            width: 100%;
-            /* Mirroring the JS logic colors */
+            height: 12px; width: 100%;
             background: linear-gradient(to right, #ca0020, #f4a582, #e0f3f8, #92c5de, #0571b0);
-            border-radius: 2px;
-            margin: 10px 0 5px 0;
+            border-radius: 2px; margin: 10px 0 5px 0;
         }
-        .legend-labels {
-            display: flex; justify-content: space-between;
-            font-size: 0.65rem; font-weight: bold; color: var(--fs-gray);
-        }
+        .legend-labels { display: flex; justify-content: space-between; font-size: 0.65rem; font-weight: bold; color: var(--fs-gray); }
     </style>
 </head>
 <body>
@@ -49,10 +43,7 @@
 <div id="sidebar">
     <div class="filter-section">
         <label style="font-size:0.7rem; font-weight:bold; opacity: 0.8;">SNAPSHOT YEAR (SHARE SUCCESSFULLY SOLD)</label>
-        <select id="year-filter" onchange="updateMapAndStats()" style="width:100%; padding:10px; margin-top:8px; border-radius:4px; border:none;">
-            <option value="2025">2025 Performance</option>
-            <option value="2024">2024 Performance</option>
-            </select>
+        <select id="year-filter" onchange="updateMapAndStats()" style="width:100%; padding:10px; margin-top:8px; border-radius:4px; border:none;"></select>
     </div>
 
     <h2 id="view-title" style="color: var(--fs-green); font-weight: 800;">Service-Wide View</h2>
@@ -60,7 +51,7 @@
     <div class="stats-grid">
         <div class="stat-card highlight"><span class="stat-val" id="stat-attainment">0</span><span class="stat-label">Total CCF Attainment</span></div>
         <div class="stat-card"><span class="stat-val" id="stat-offer">0</span><span class="stat-label">Total CCF Offer</span></div>
-        <div class="stat-card"><span class="stat-val" id="stat-pct">0%</span><span class="stat-label">Share of offered timber successfully sold</span></div>
+        <div class="stat-card"><span class="stat-val" id="stat-pct">0%</span><span class="stat-label">Share successfully sold</span></div>
         <div class="stat-card"><span class="stat-val" id="stat-mbf">0</span><span class="stat-label">Equivalent MBF</span></div>
     </div>
 
@@ -88,29 +79,13 @@
 </div>
 
 <script>
-// Helper to normalize names for comparison
-function normalizeName(name) {
-    if (!name) return "";
-    return name.toString().toLowerCase()
-        .replace(/^\d+\s*/, '')              
-        .replace(/\//g, '-')                 
-        .replace(/ national forest(s?)/g, '')
-        .replace(/ national scenic area/g, '')
-        .replace(/ national recreation area/g, '')
-        .replace(/ national tallgrass prairie/g, '')
-        .replace(/ management unit/g, '')     
-        .replace(/ and /g, '-')              
-        .replace(/ & /g, '-')                
-        .replace(/[.,]/g, '')                
-        .replace(/\s+/g, '')  
-        .replace(/-+/g, '')   
-        .trim();
-}
+let ptsarData = [], geoData = null, chartObj = null, activeForest = null;
 
+// Re-mapped names based on specific PTSAR CSV strings
 const FOREST_NAME_MAP = {
     "Columbia River Gorge National Scenic Area": "22 Columbia River Gorge National Scenic Area National Forest",
-    "Grand Mesa, Uncompahgre and Gunnison National Forests": "04 GrandMesa/Uncompahgre/Gunnison National Forest",
     "Land Between the Lakes National Recreation Area": "60 Land Between The Lakes National Forest",
+    "Grand Mesa, Uncompahgre and Gunnison National Forests": "04 GrandMesa/Uncompahgre/Gunnison National Forest",
     "Lake Tahoe Basin Management Unit": "19 Lake Tahoe Basin National Forest",
     "National Forests in Alabama": "01 NFS In Alabama National Forest",
     "National Forests in Florida": "05 NFS In Florida National Forest",
@@ -121,19 +96,27 @@ const FOREST_NAME_MAP = {
     "Green Mountain and Finger Lakes National Forests": "20 Green Mountain National Forest"
 };
 
-mapboxgl.accessToken = 'pk.eyJ1IjoicGtpZWZlciIsImEiOiJjbWxqeWRsNzMwNHV5M3FweTMyemY5emQzIn0.iPzQxYOu7uNUkophKSfiLA';
+function normalizeName(name) {
+    if (!name) return "";
+    return name.toString().toLowerCase()
+        .replace(/^\d+\s*/, '').replace(/\//g, '-').replace(/ national forest(s?)/g, '')
+        .replace(/ national scenic area/g, '').replace(/ national recreation area/g, '')
+        .replace(/ national tallgrass prairie/g, '').replace(/ management unit/g, '')
+        .replace(/ and /g, '-').replace(/ & /g, '-').replace(/[.,]/g, '')
+        .replace(/\s+/g, '').replace(/-+/g, '').trim();
+}
 
-let ptsarData = [], geoData = null, chartObj = null, activeForest = null;
+mapboxgl.accessToken = 'pk.eyJ1IjoicGtpZWZlciIsImEiOiJjbWxqeWRsNzMwNHV5M3FweTMyemY5emQzIn0.iPzQxYOu7uNUkophKSfiLA';
 
 Promise.all([
     fetch('data/PTSAR_2006_2025_master.csv').then(r => r.text()),
-    fetch('shapefiles/national_forest_boundaries.json').then(r => r.json())
+    fetch('shapefiles/national_forest_boundaries.geojson').then(r => r.json())
 ]).then(([csvText, geoJson]) => {
     ptsarData = Papa.parse(csvText, { header: true, dynamicTyping: true, skipEmptyLines: true }).data;
     geoData = geoJson;
-    initMap();
     initYearFilter();
-}).catch(err => console.error("Critical Load Error:", err));
+    initMap();
+}).catch(err => console.error("Load Error:", err));
 
 function initYearFilter() {
     const sel = document.getElementById('year-filter');
@@ -147,124 +130,97 @@ function initYearFilter() {
 
 function initMap() {
     const map = new mapboxgl.Map({
-        container: 'map',
-        style: 'mapbox://styles/mapbox/light-v11',
-        center: [-98.5, 39.8],
-        zoom: 3.5
+        container: 'map', style: 'mapbox://styles/mapbox/light-v11',
+        center: [-98.5, 39.8], zoom: 3.5
     });
 
     map.on('load', () => {
         map.addSource('forests', { type: 'geojson', data: geoData });
         map.addLayer({
-            id: 'forest-fills',
-            type: 'fill',
-            source: 'forests',
+            id: 'forest-fills', type: 'fill', source: 'forests',
             paint: { 'fill-color': '#cccccc', 'fill-opacity': 0.6 }
         });
         map.addLayer({
-            id: 'forest-borders',
-            type: 'line',
-            source: 'forests',
+            id: 'forest-borders', type: 'line', source: 'forests',
             paint: { 'line-color': '#ffffff', 'line-width': 0.5 }
         });
-
-        map.on('click', 'forest-fills', (e) => {
-            selectForest(e.features[0].properties.FORESTNAME);
-        });
-
+        map.on('click', 'forest-fills', (e) => selectForest(e.features[0].properties.FORESTNAME));
         map.on('mouseenter', 'forest-fills', () => map.getCanvas().style.cursor = 'pointer');
         map.on('mouseleave', 'forest-fills', () => map.getCanvas().style.cursor = '');
-
         updateMapAndStats();
     });
     window.map = map;
 }
 
-//Unified matching for both Map and Sidebar
 function findCsvKeyForForest(jsonName, currentYearData) {
-    const normGeo = normalizeName(jsonName);
-    
-    // 1. Check the manual map, but NORMALIZE the result before comparing
-    // This handles the "the/The" variation in your scraper output
-    for (const [geoKey, csvValue] of Object.entries(FOREST_NAME_MAP)) {
-        if (geoKey === jsonName) {
-            const normMappedValue = normalizeName(csvValue);
-            const match = currentYearData.find(d => normalizeName(d.Forest) === normMappedValue);
-            if (match) return match.Forest;
-        }
-    }
+    const mappedValue = FOREST_NAME_MAP[jsonName];
+    if (mappedValue) return mappedValue;
 
-    // 2. Direct normalization fallback (if not in the manual map)
-    const directMatch = currentYearData.find(d => normalizeName(d.Forest) === normGeo);
-    if (directMatch) return directMatch.Forest;
-    
-    // 3. Fuzzy match (last resort)
+    const normGeo = normalizeName(jsonName);
+    const match = currentYearData.find(d => normalizeName(d.Forest) === normGeo);
+    if (match) return match.Forest;
+
     const fuzzy = currentYearData.find(d => {
         const nCsv = normalizeName(d.Forest);
         return normGeo.includes(nCsv) || nCsv.includes(normGeo);
     });
-    
     return fuzzy ? fuzzy.Forest : null;
 }
 
 function updateMapAndStats() {
     const year = parseInt(document.getElementById('year-filter').value);
-    if (!ptsarData.length) return;
+    if (!ptsarData.length || !geoData) return;
 
     const currentYearData = ptsarData.filter(d => d.Year === year && d.Forest !== "Region Total");
     const colorExpr = ['match', ['get', 'FORESTNAME']];
-    
-    // 1. Map Coloring Logic
+    let activeCsvKey = null;
+
     geoData.features.forEach(f => {
         const geoName = f.properties.FORESTNAME;
         const csvKey = findCsvKeyForForest(geoName, currentYearData);
+        if (activeForest === geoName) activeCsvKey = csvKey;
+
         const data = currentYearData.find(d => d.Forest === csvKey);
-        
         if (data) {
-            const attainment = parseFloat(data.CCF_Attainment) || 0;
-            const offer = parseFloat(data.CCF_Offer) || 0;
+            const att = parseFloat(data.CCF_Attainment) || 0;
+            const off = parseFloat(data.CCF_Offer) || 0;
             let color = "#cccccc"; 
-            
-            if (offer > 0) {
-                const pct = attainment / offer;
-                if (pct >= 1.10)      color = "#0571b0"; 
+            if (off > 0) {
+                const pct = att / off;
+                if (pct >= 1.10) color = "#0571b0"; 
                 else if (pct >= 0.95) color = "#92c5de"; 
                 else if (pct >= 0.85) color = "#e0f3f8"; 
                 else if (pct >= 0.50) color = "#f4a582"; 
-                else                  color = "#ca0020"; 
-            } else if (attainment > 0) {
-                color = "#0571b0"; 
+                else color = "#ca0020"; 
+            } else if (att > 0) {
+                color = "#0571b0"; // Sold without target
             }
             colorExpr.push(geoName, color);
         }
     });
 
-    colorExpr.push('#cccccc'); 
-
+    colorExpr.push('#cccccc');
     if (window.map && window.map.getLayer('forest-fills')) {
         window.map.setPaintProperty('forest-fills', 'fill-color', colorExpr);
     }
 
-    // 2. Sidebar Logic: Use the window.currentForestCsvKey we found in selectForest
     let displayData, trendData;
-
     if (!activeForest) {
         document.getElementById('view-title').innerText = "Service-Wide View";
         displayData = ptsarData.filter(d => d.Year === year && d.Forest === "Region Total");
         trendData = ptsarData.filter(d => d.Forest === "Region Total");
     } else {
         document.getElementById('view-title').innerText = activeForest;
-        displayData = ptsarData.filter(d => d.Year === year && d.Forest === window.currentForestCsvKey);
-        trendData = ptsarData.filter(d => d.Forest === window.currentForestCsvKey);
+        displayData = ptsarData.filter(d => d.Year === year && d.Forest === activeCsvKey);
+        trendData = ptsarData.filter(d => d.Forest === activeCsvKey);
     }
 
     updateSidebarStats(displayData);
     renderTrendChart(trendData);
 }
-    
+
 function updateSidebarStats(data) {
     const row = data[0] || {}; 
-    
     const att = parseFloat(row.CCF_Attainment) || 0;
     const off = parseFloat(row.CCF_Offer) || 0;
     const mbf = parseFloat(row.MBF_Attainment) || 0;
@@ -304,20 +260,6 @@ function renderTrendChart(trendData) {
 
 function selectForest(name) {
     activeForest = name;
-    
-    // FIND THE CSV KEY ONCE: Search the whole master data, not just the current year
-    const normTarget = normalizeName(name);
-    const mappedValue = FOREST_NAME_MAP[name];
-    const normMapped = mappedValue ? normalizeName(mappedValue) : null;
-
-    const match = ptsarData.find(d => {
-        const nCsv = normalizeName(d.Forest);
-        return nCsv === normTarget || nCsv === normMapped;
-    });
-
-    // Store this globally so the trend chart ALWAYS has it
-    window.currentForestCsvKey = match ? match.Forest : null;
-
     document.getElementById('back-button-container').classList.remove('nav-hidden');
     updateMapAndStats();
 }

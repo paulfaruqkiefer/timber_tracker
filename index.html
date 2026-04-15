@@ -42,7 +42,7 @@
             line-height: 14px; cursor: help; margin-left: 5px; vertical-align: middle;
         }
         .info-icon:hover::after {
-            content: "Note: Sold volume can exceed Offered volume due to salvage sales, forest health initiatives, or unplanned timber availability not captured in initial targets.";
+            content: "Note: Sold volume can exceed offered volume due to salvage sales, forest health initiatives, or unplanned timber availability not captured in initial targets.";
             position: absolute; top: 100%; left: 0; width: 200px; background: #333; color: white; 
             padding: 10px; border-radius: 4px; font-size: 0.65rem; z-index: 20; font-weight: normal; text-transform: none;
         }
@@ -66,8 +66,8 @@
 <body>
 
 <div id="top-bar">
-    <h1>TIMBER PERFORMANCE DASHBOARD</h1>
-    <div id="credit-line">Data Visualization by Paul Faruq Kiefer | USFS PTSAR Archive</div>
+    <h1>U.S. Forest Service timber sales: Volume offered vs. volume sold by year and forest.</h1>
+    <div id="credit-line"> Paul Kiefer | USFS PTSAR Archive </div>
 </div>
 
 <div id="main-content">
@@ -82,11 +82,11 @@
         <div class="stats-grid">
             <div class="stat-card highlight">
                 <span class="stat-val" id="stat-attainment">0</span>
-                <span class="stat-label">Total sold (CCF)<span class="info-icon">i</span></span>
+                <span class="stat-label">Total sold (100 cubic feet)<span class="info-icon">i</span></span>
             </div>
             <div class="stat-card">
                 <span class="stat-val" id="stat-offer">0</span>
-                <span class="stat-label">Total offered (CCF)</span>
+                <span class="stat-label">Total offered (100 cubic feet)</span>
             </div>
             <div class="stat-card">
                 <span class="stat-val" id="stat-pct">0%</span>
@@ -94,7 +94,7 @@
             </div>
             <div class="stat-card">
                 <span class="stat-val" id="stat-mbf">0</span>
-                <span class="stat-label">Equiv. MBF</span>
+                <span class="stat-label">Equiv. board feet (1000 board feet)</span>
             </div>
         </div>
 
@@ -277,8 +277,8 @@ function renderTrendChart(trendData) {
         data: {
             labels: years,
             datasets: [
-                { label: 'Attainment', data: attValues, borderColor: '#2e4d2e', backgroundColor: '#2e4d2e', fill: false, borderWidth: 3 },
-                { label: 'Offer', data: offValues, borderColor: '#b58100', borderDash: [5,5], fill: false, borderWidth: 2 }
+                { label: 'Sold', data: attValues, borderColor: '#2e4d2e', backgroundColor: '#2e4d2e', fill: false, borderWidth: 3 },
+                { label: 'Offered', data: offValues, borderColor: '#b58100', borderDash: [5,5], fill: false, borderWidth: 2 }
             ]
         },
         options: { 

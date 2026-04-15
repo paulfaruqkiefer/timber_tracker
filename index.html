@@ -1,0 +1,310 @@
+<!DOCTYPE html>
+<html>
+<head>
+    <meta charset="utf-8">
+    <title>USFS Timber Performance Dashboard (2006-2025)</title>
+    <script src="https://api.mapbox.com/mapbox-gl-js/v2.15.0/mapbox-gl.js"></script>
+    <link href="https://api.mapbox.com/mapbox-gl-js/v2.15.0/mapbox-gl.css" rel="stylesheet">
+    <script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/PapaParse/5.3.0/papaparse.min.js"></script>
+    <style>
+        :root {
+            --fs-green: #2e4d2e; --fs-light-green: #ebf2eb; --fs-gold: #b58100;
+            --fs-gray: #767676; --fs-bg: #f4f4f4;
+        }
+        body { margin: 0; display: flex; height: 100vh; font-family: 'Helvetica Neue', Arial, sans-serif; background: var(--fs-bg); overflow: hidden; }
+        #sidebar { width: 420px; background: white; overflow-y: auto; padding: 25px; border-right: 1px solid #ccc; z-index: 2; box-shadow: 2px 0 5px rgba(0,0,0,0.1); }
+        #map-container { flex-grow: 1; position: relative; }
+        #map { width: 100%; height: 100%; }
+        .filter-section { background: var(--fs-green); color: white; padding: 20px; margin: -25px -25px 20px -25px; }
+        .stats-grid { display: grid; grid-template-columns: 1fr 1fr; gap: 10px; margin-bottom: 20px; }
+        .stat-card { background: #f9f9f9; padding: 12px; border-radius: 4px; border-bottom: 3px solid #ddd; }
+        .stat-card.highlight { border-bottom-color: var(--fs-gold); }
+        .stat-val { font-size: 1.1rem; font-weight: 900; color: var(--fs-green); display: block; }
+        .stat-label { font-size: 0.6rem; text-transform: uppercase; color: var(--fs-gray); font-weight: bold; }
+        .chart-container { height: 250px; position: relative; margin-bottom: 20px; }
+        .nav-hidden { display: none !important; }
+        button.reset-btn { width: 100%; padding: 12px; background: white; border: 2px solid var(--fs-green); color: var(--fs-green); font-weight: bold; cursor: pointer; }
+        .map-legend {
+            position: absolute; bottom: 30px; right: 20px;
+            background: white; padding: 15px; border-radius: 4px;
+            box-shadow: 0 0 10px rgba(0,0,0,0.2); z-index: 5; width: 200px;
+        }
+        .legend-gradient {
+            height: 12px;
+            width: 100%;
+            /* Mirroring the JS logic colors */
+            background: linear-gradient(to right, #ca0020, #f4a582, #e0f3f8, #92c5de, #0571b0);
+            border-radius: 2px;
+            margin: 10px 0 5px 0;
+        }
+        .legend-labels {
+            display: flex; justify-content: space-between;
+            font-size: 0.65rem; font-weight: bold; color: var(--fs-gray);
+        }
+    </style>
+</head>
+<body>
+
+<div id="sidebar">
+    <div class="filter-section">
+        <label style="font-size:0.7rem; font-weight:bold; opacity: 0.8;">SNAPSHOT YEAR (SHARE SUCCESSFULLY SOLD)</label>
+        <select id="year-filter" onchange="updateMapAndStats()" style="width:100%; padding:10px; margin-top:8px; border-radius:4px; border:none;">
+            <option value="2025">2025 Performance</option>
+            <option value="2024">2024 Performance</option>
+            </select>
+    </div>
+
+    <h2 id="view-title" style="color: var(--fs-green); font-weight: 800;">Service-Wide View</h2>
+
+    <div class="stats-grid">
+        <div class="stat-card highlight"><span class="stat-val" id="stat-attainment">0</span><span class="stat-label">Total CCF Attainment</span></div>
+        <div class="stat-card"><span class="stat-val" id="stat-offer">0</span><span class="stat-label">Total CCF Offer</span></div>
+        <div class="stat-card"><span class="stat-val" id="stat-pct">0%</span><span class="stat-label">Share of offered timber successfully sold</span></div>
+        <div class="stat-card"><span class="stat-val" id="stat-mbf">0</span><span class="stat-label">Equivalent MBF</span></div>
+    </div>
+
+    <div id="chart-wrapper">
+        <h4 style="text-transform: uppercase; font-size: 0.7rem; color: var(--fs-gray);">20-Year Volume Trend</h4>
+        <div class="chart-container"><canvas id="sidebarChart"></canvas></div>
+    </div>
+
+    <div id="back-button-container" class="nav-hidden">
+        <button class="reset-btn" onclick="resetToNational()">← Return to National View</button>
+    </div>
+</div>
+
+<div id="map-container">
+    <div id="map"></div>
+    <div class="map-legend">
+        <div style="font-size: 0.75rem; font-weight: 800; color: var(--fs-green);">SHARE SUCCESSFULLY SOLD (%)</div>
+        <div class="legend-gradient"></div>
+        <div class="legend-labels">
+            <span>< 50%</span>
+            <span>100%</span>
+            <span>110%+</span>
+        </div>
+    </div>
+</div>
+
+<script>
+// Helper to normalize names for comparison
+function normalizeName(name) {
+    if (!name) return "";
+    return name.toString().toLowerCase()
+        .replace(/^\d+\s*/, '')              
+        .replace(/\//g, '-')                 
+        .replace(/ national forest(s?)/g, '')
+        .replace(/ national scenic area/g, '')
+        .replace(/ national recreation area/g, '')
+        .replace(/ national tallgrass prairie/g, '')
+        .replace(/ management unit/g, '')     
+        .replace(/ and /g, '-')              
+        .replace(/ & /g, '-')                
+        .replace(/[.,]/g, '')                
+        .replace(/\s+/g, '')  
+        .replace(/-+/g, '')   
+        .trim();
+}
+
+const FOREST_NAME_MAP = {
+    "Columbia River Gorge National Scenic Area": "22 Columbia River Gorge National Scenic Area National Forest",
+    "Grand Mesa, Uncompahgre and Gunnison National Forests": "04 GrandMesa/Uncompahgre/Gunnison National Forest",
+    "Land Between the Lakes National Recreation Area": "60 Land Between the Lakes National Forest",
+    "Lake Tahoe Basin Management Unit": "19 Lake Tahoe Basin National Forest",
+    "National Forests in Alabama": "01 NFS In Alabama National Forest",
+    "National Forests in Florida": "05 NFS In Florida National Forest",
+    "National Forests in Mississippi": "07 NFS In Mississippi National Forest",
+    "National Forests in North Carolina": "11 NFS in N. Carolina National Forest",
+    "National Forests in Texas": "13 NFS In Texas National Forest",
+    "Francis Marion and Sumter National Forests": "12 Francis Marion-Sumter National Forest",
+    "Green Mountain and Finger Lakes National Forests": "20 Green Mountain National Forest"
+};
+
+mapboxgl.accessToken = 'pk.eyJ1IjoicGtpZWZlciIsImEiOiJjbWxqeWRsNzMwNHV5M3FweTMyemY5emQzIn0.iPzQxYOu7uNUkophKSfiLA';
+
+let ptsarData = [], geoData = null, chartObj = null, activeForest = null;
+
+Promise.all([
+    fetch('data/PTSAR_2006_2025_master.csv').then(r => r.text()),
+    fetch('shapefiles/national_forest_boundaries.geojson').then(r => r.json())
+]).then(([csvText, geoJson]) => {
+    ptsarData = Papa.parse(csvText, { header: true, dynamicTyping: true, skipEmptyLines: true }).data;
+    geoData = geoJson;
+    initMap();
+    initYearFilter();
+}).catch(err => console.error("Critical Load Error:", err));
+
+function initYearFilter() {
+    const sel = document.getElementById('year-filter');
+    sel.innerHTML = "";
+    for(let y=2025; y>=2007; y--) {
+        let opt = document.createElement('option');
+        opt.value = y; opt.innerText = y + " Performance Snapshot";
+        sel.appendChild(opt);
+    }
+}
+
+function initMap() {
+    const map = new mapboxgl.Map({
+        container: 'map',
+        style: 'mapbox://styles/mapbox/light-v11',
+        center: [-98.5, 39.8],
+        zoom: 3.5
+    });
+
+    map.on('load', () => {
+        map.addSource('forests', { type: 'geojson', data: geoData });
+        map.addLayer({
+            id: 'forest-fills',
+            type: 'fill',
+            source: 'forests',
+            paint: { 'fill-color': '#cccccc', 'fill-opacity': 0.6 }
+        });
+        map.addLayer({
+            id: 'forest-borders',
+            type: 'line',
+            source: 'forests',
+            paint: { 'line-color': '#ffffff', 'line-width': 0.5 }
+        });
+
+        map.on('click', 'forest-fills', (e) => {
+            selectForest(e.features[0].properties.FORESTNAME);
+        });
+
+        map.on('mouseenter', 'forest-fills', () => map.getCanvas().style.cursor = 'pointer');
+        map.on('mouseleave', 'forest-fills', () => map.getCanvas().style.cursor = '');
+
+        updateMapAndStats();
+    });
+    window.map = map;
+}
+
+// THE CORE LOGIC: Unified matching for both Map and Sidebar
+function findCsvKeyForForest(jsonName, currentYearData) {
+    const normGeo = normalizeName(jsonName);
+    
+    // 1. Check manual map
+    let csvKey = FOREST_NAME_MAP[jsonName];
+    
+    // 2. Check direct normalization
+    if (!csvKey) {
+        csvKey = currentYearData.find(d => normalizeName(d.Forest) === normGeo)?.Forest;
+    }
+    
+    // 3. Fuzzy match
+    if (!csvKey) {
+        csvKey = currentYearData.find(d => {
+            const nCsv = normalizeName(d.Forest);
+            return normGeo.includes(nCsv) || nCsv.includes(normGeo);
+        })?.Forest;
+    }
+    return csvKey;
+}
+
+function updateMapAndStats() {
+    const year = parseInt(document.getElementById('year-filter').value);
+    if (!ptsarData.length) return;
+
+    const currentYearData = ptsarData.filter(d => d.Year === year && d.Forest !== "Region Total");
+    const colorExpr = ['match', ['get', 'FORESTNAME']];
+    
+    let activeCsvKey = null;
+
+    // 1. Loop through ALL geo features to build the map colors
+    geoData.features.forEach(f => {
+        const geoName = f.properties.FORESTNAME;
+        const csvKey = findCsvKeyForForest(geoName, currentYearData);
+        
+        // Save the key if this is our clicked forest
+        if (activeForest === geoName) activeCsvKey = csvKey;
+
+        const data = currentYearData.find(d => d.Forest === csvKey);
+        if (data && data.CCF_Offer > 0) {
+            const pct = data.CCF_Attainment / data.CCF_Offer;
+            let color;
+            if (pct >= 1.10)      color = "#0571b0"; 
+            else if (pct >= 0.95) color = "#92c5de"; 
+            else if (pct >= 0.85) color = "#e0f3f8"; // Distinct from gray background
+            else if (pct >= 0.50) color = "#f4a582"; 
+            else                  color = "#ca0020"; 
+            colorExpr.push(geoName, color);
+        }
+    });
+
+    colorExpr.push('#cccccc'); // Fallback gray
+
+    if (window.map && window.map.getLayer('forest-fills')) {
+        window.map.setPaintProperty('forest-fills', 'fill-color', colorExpr);
+    }
+
+    // 2. Sidebar Logic
+    let displayData;
+    let trendData;
+
+    if (!activeForest) {
+        document.getElementById('view-title').innerText = "Service-Wide View";
+        displayData = ptsarData.filter(d => d.Year === year && d.Forest === "Region Total");
+        trendData = ptsarData.filter(d => d.Forest === "Region Total");
+    } else {
+        document.getElementById('view-title').innerText = activeForest; // Clean JSON Name
+        displayData = ptsarData.filter(d => d.Year === year && d.Forest === activeCsvKey);
+        trendData = ptsarData.filter(d => d.Forest === activeCsvKey);
+    }
+
+    updateSidebarStats(displayData);
+    renderTrendChart(trendData);
+}
+
+function updateSidebarStats(data) {
+    const att = data.reduce((s, d) => s + (parseFloat(d.CCF_Attainment) || 0), 0);
+    const off = data.reduce((s, d) => s + (parseFloat(d.CCF_Offer) || 0), 0);
+    const mbf = data.reduce((s, d) => s + (parseFloat(d.MBF_Attainment) || 0), 0);
+    
+    document.getElementById('stat-attainment').innerText = Math.round(att).toLocaleString();
+    document.getElementById('stat-offer').innerText = Math.round(off).toLocaleString();
+    document.getElementById('stat-mbf').innerText = Math.round(mbf).toLocaleString();
+    document.getElementById('stat-pct').innerText = off > 0 ? ((att/off)*100).toFixed(1) + "%" : "0%";
+}
+
+function renderTrendChart(trendData) {
+    const canvas = document.getElementById('sidebarChart');
+    if (!canvas) return;
+    const ctx = canvas.getContext('2d');
+    if (chartObj) chartObj.destroy();
+
+    const years = Array.from(new Set(ptsarData.map(d => d.Year))).sort();
+    const attValues = years.map(y => trendData.filter(d => d.Year == y).reduce((s, d) => s + (parseFloat(d.CCF_Attainment) || 0), 0));
+    const offValues = years.map(y => trendData.filter(d => d.Year == y).reduce((s, d) => s + (parseFloat(d.CCF_Offer) || 0), 0));
+
+    chartObj = new Chart(ctx, {
+        type: 'line',
+        data: {
+            labels: years,
+            datasets: [
+                { label: 'Attainment', data: attValues, borderColor: '#2e4d2e', backgroundColor: '#2e4d2e', fill: false, borderWidth: 3 },
+                { label: 'Offer', data: offValues, borderColor: '#b58100', borderDash: [5,5], fill: false, borderWidth: 2 }
+            ]
+        },
+        options: { 
+            responsive: true, maintainAspectRatio: false,
+            plugins: { legend: { labels: { usePointStyle: true, pointStyle: 'line' } } },
+            scales: { y: { beginAtZero: true } }
+        }
+    });
+}
+
+function selectForest(name) {
+    activeForest = name;
+    document.getElementById('back-button-container').classList.remove('nav-hidden');
+    updateMapAndStats();
+}
+
+function resetToNational() {
+    activeForest = null;
+    document.getElementById('back-button-container').classList.add('nav-hidden');
+    updateMapAndStats();
+}
+</script>
+</body>
+</html>

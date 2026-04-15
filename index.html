@@ -110,7 +110,7 @@ function normalizeName(name) {
 const FOREST_NAME_MAP = {
     "Columbia River Gorge National Scenic Area": "22 Columbia River Gorge National Scenic Area National Forest",
     "Grand Mesa, Uncompahgre and Gunnison National Forests": "04 GrandMesa/Uncompahgre/Gunnison National Forest",
-    "Land Between the Lakes National Recreation Area": "60 Land Between the Lakes National Forest",
+    "Land Between the Lakes National Recreation Area": "60 Land Between The Lakes National Forest",
     "Lake Tahoe Basin Management Unit": "19 Lake Tahoe Basin National Forest",
     "National Forests in Alabama": "01 NFS In Alabama National Forest",
     "National Forests in Florida": "05 NFS In Florida National Forest",
@@ -180,26 +180,24 @@ function initMap() {
     window.map = map;
 }
 
-// THE CORE LOGIC: Unified matching for both Map and Sidebar
+//Unified matching for both Map and Sidebar
 function findCsvKeyForForest(jsonName, currentYearData) {
     const normGeo = normalizeName(jsonName);
     
-    // 1. Check manual map
-    let csvKey = FOREST_NAME_MAP[jsonName];
+    // 1. Check manual map first
+    let mappedName = FOREST_NAME_MAP[jsonName];
+    if (mappedName) return mappedName;
+
+    // 2. Check direct normalization across the whole CSV
+    const match = currentYearData.find(d => normalizeName(d.Forest) === normGeo);
+    if (match) return match.Forest;
     
-    // 2. Check direct normalization
-    if (!csvKey) {
-        csvKey = currentYearData.find(d => normalizeName(d.Forest) === normGeo)?.Forest;
-    }
-    
-    // 3. Fuzzy match
-    if (!csvKey) {
-        csvKey = currentYearData.find(d => {
-            const nCsv = normalizeName(d.Forest);
-            return normGeo.includes(nCsv) || nCsv.includes(normGeo);
-        })?.Forest;
-    }
-    return csvKey;
+    // 3. Fuzzy match fallback
+    const fuzzy = currentYearData.find(d => {
+        const nCsv = normalizeName(d.Forest);
+        return normGeo.includes(nCsv) || nCsv.includes(normGeo);
+    });
+    return fuzzy ? fuzzy.Forest : null;
 }
 
 function updateMapAndStats() {

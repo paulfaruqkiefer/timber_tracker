@@ -114,6 +114,12 @@
             <div class="chart-container"><canvas id="sidebarChart"></canvas></div>
         </div>
 
+        <div id="toggle-container" style="margin-bottom: 15px;">
+            <button id="timber-toggle" class="reset-btn" onclick="toggleTimberSales()" style="background: var(--fs-light-green); border-color: var(--fs-green); margin-bottom:10px;">
+                View Timber Sale Areas (GeoJSON)
+            </button>
+        </div>
+
         <div id="back-button-container" class="nav-hidden">
             <button class="reset-btn" onclick="resetToNational()">← Return to National View</button>
         </div>
@@ -164,35 +170,61 @@ mapboxgl.accessToken = 'pk.eyJ1IjoicGtpZWZlciIsImEiOiJjbWxqeWRsNzMwNHV5M3FweTMye
 
 // WRAPPER: Ensures script runs after HTML is loaded
 document.addEventListener('DOMContentLoaded', () => {
+    // --- REPLACE YOUR OLD PROMISE.ALL WITH THIS ---
     Promise.all([
-        fetch('data/PTSAR_2006_2025_master.csv').then(r => r.text()),
-        fetch('shapefiles/national_forest_boundaries.json').then(r => r.json())
+        fetch('data/PTSAR_2006_2025_master.csv').then(r => {
+            if (!r.ok) throw new Error(`CSV 404: ${r.url}`);
+            return r.text();
+        }),
+        fetch('shapefiles/national_forest_boundaries.geojson').then(r => {
+            if (!r.ok) throw new Error(`JSON 404: ${r.url}`);
+            return r.json();
+        })
     ]).then(([csvText, geoJson]) => {
         ptsarData = Papa.parse(csvText, { header: true, dynamicTyping: true, skipEmptyLines: true }).data;
         geoData = geoJson;
         initYearFilter();
         initMap();
-    }).catch(err => console.error("Load Error:", err));
+    }).catch(err => {
+        // This will now print the specific "CSV 404" or "JSON 404" message
+        console.error("Detailed Load Error:", err);
+    });
 });
 
 function initYearFilter() {
     const sel = document.getElementById('year-filter');
     if(!sel) return;
     sel.innerHTML = "";
+    
+    // Add Cumulative Option first
+    let cumulativeOpt = document.createElement('option');
+    cumulativeOpt.value = "all"; 
+    cumulativeOpt.innerText = "Cumulative (2007-2025)";
+    sel.appendChild(cumulativeOpt);
+
+    // Add Year Snapshots
     for(let y=2025; y>=2007; y--) {
         let opt = document.createElement('option');
-        opt.value = y; opt.innerText = y + " Performance Snapshot";
+        opt.value = y; 
+        opt.innerText = y + " Performance Snapshot";
         sel.appendChild(opt);
     }
+    
+    sel.value = "all"; // Set as default
 }
+
+let timberVisible = false;
 
 function initMap() {
     const map = new mapboxgl.Map({
-        container: 'map', style: 'mapbox://styles/mapbox/light-v11',
-        center: [-98.5, 39.8], zoom: 3.5
+        container: 'map', 
+        style: 'mapbox://styles/mapbox/light-v11',
+        center: [-98.5, 39.8], 
+        zoom: 3.5
     });
 
     map.on('load', () => {
+        // --- NATIONAL FOREST BOUNDARIES ---
         map.addSource('forests', { type: 'geojson', data: geoData });
         map.addLayer({
             id: 'forest-fills', type: 'fill', source: 'forests',
@@ -202,12 +234,68 @@ function initMap() {
             id: 'forest-borders', type: 'line', source: 'forests',
             paint: { 'line-color': '#ffffff', 'line-width': 0.5 }
         });
+
+        // --- TIMBER SALES AREA (GEOJSON) ---
+        // We load the source but keep the layer 'none' by default
+        map.addSource('timber-areas', { 
+            type: 'geojson', 
+            data: 'shapefiles/timber_sale_areas.geojson',
+            generateId: true // Required for feature states if you want to highlight on hover
+        });
+
+        map.addLayer({
+            id: 'timber-sales-layer',
+            type: 'fill',
+            source: 'timber-areas',
+            layout: { 'visibility': 'none' },
+            paint: {
+                'fill-color': '#1a4314', // Deep Forest Green
+                'fill-opacity': 0.25,    // Low opacity makes overlaps look like a heatmap
+                'fill-outline-color': '#ffffff'
+            }
+        });
+
+        // Event listeners
         map.on('click', 'forest-fills', (e) => selectForest(e.features[0].properties.FORESTNAME));
+        
+        // Popup for individual timber sale units
+        map.on('click', 'timber-sales-layer', (e) => {
+            const props = e.features[0].properties;
+            new mapboxgl.Popup()
+                .setLngLat(e.lngLat)
+                .setHTML(`
+                    <div style="font-family: var(--fs-font); font-size: 0.8rem;">
+                        <strong>SALE:</strong> ${props.NAME}<br>
+                        <strong>YEAR:</strong> ${props.FY_AWARD}<br>
+                        <strong>ACRES:</strong> ${Math.round(props.GIS_ACRES)}
+                    </div>
+                `)
+                .addTo(map);
+        });
+
         map.on('mouseenter', 'forest-fills', () => map.getCanvas().style.cursor = 'pointer');
         map.on('mouseleave', 'forest-fills', () => map.getCanvas().style.cursor = '');
+        
         updateMapAndStats();
     });
     window.map = map;
+}
+
+function toggleTimberSales() {
+    const btn = document.getElementById('timber-toggle');
+    timberVisible = !timberVisible;
+    
+    if (window.map) {
+        window.map.setLayoutProperty(
+            'timber-sales-layer', 
+            'visibility', 
+            timberVisible ? 'visible' : 'none'
+        );
+        
+        btn.innerText = timberVisible ? "Hide Timber Sale Areas" : "View Timber Sale Areas";
+        btn.style.background = timberVisible ? "var(--fs-gold)" : "var(--fs-light-green)";
+        btn.style.color = timberVisible ? "white" : "var(--fs-green)";
+    }
 }
 
 function findCsvKeyForForest(jsonName, currentYearData) {
@@ -226,19 +314,44 @@ function findCsvKeyForForest(jsonName, currentYearData) {
 function updateMapAndStats() {
     const yearSelect = document.getElementById('year-filter');
     if(!yearSelect) return;
-    const year = parseInt(yearSelect.value);
+    const yearVal = yearSelect.value;
     if (!ptsarData.length || !geoData) return;
-    const currentYearData = ptsarData.filter(d => d.Year === year && d.Forest !== "Region Total");
+
+    let processedData;
+    
+    if (yearVal === "all") {
+        // CUMULATIVE LOGIC: Sum everything by Forest
+        const forestMap = {};
+        ptsarData.forEach(d => {
+            if (d.Forest === "Region Total") return;
+            if (!forestMap[d.Forest]) {
+                forestMap[d.Forest] = { 
+                    Forest: d.Forest, CCF_Attainment: 0, CCF_Offer: 0, MBF_Attainment: 0 
+                };
+            }
+            forestMap[d.Forest].CCF_Attainment += (parseFloat(d.CCF_Attainment) || 0);
+            forestMap[d.Forest].CCF_Offer += (parseFloat(d.CCF_Offer) || 0);
+            forestMap[d.Forest].MBF_Attainment += (parseFloat(d.MBF_Attainment) || 0);
+        });
+        processedData = Object.values(forestMap);
+    } else {
+        // SNAPSHOT LOGIC: Original yearly filter
+        const year = parseInt(yearVal);
+        processedData = ptsarData.filter(d => d.Year === year && d.Forest !== "Region Total");
+    }
+
     const colorExpr = ['match', ['get', 'FORESTNAME']];
     let activeCsvKey = null;
+
     geoData.features.forEach(f => {
         const geoName = f.properties.FORESTNAME;
-        const csvKey = findCsvKeyForForest(geoName, currentYearData);
+        const csvKey = findCsvKeyForForest(geoName, processedData);
         if (activeForest === geoName) activeCsvKey = csvKey;
-        const data = currentYearData.find(d => d.Forest === csvKey);
+        
+        const data = processedData.find(d => d.Forest === csvKey);
         if (data) {
-            const att = parseFloat(data.CCF_Attainment) || 0;
-            const off = parseFloat(data.CCF_Offer) || 0;
+            const att = data.CCF_Attainment || 0;
+            const off = data.CCF_Offer || 0;
             let color = "#cccccc"; 
             if (off > 0) {
                 const pct = att / off;
@@ -251,21 +364,40 @@ function updateMapAndStats() {
             colorExpr.push(geoName, color);
         }
     });
+
     colorExpr.push('#cccccc');
     if (window.map && window.map.getLayer('forest-fills')) {
         window.map.setPaintProperty('forest-fills', 'fill-color', colorExpr);
     }
-    let displayData, trendData;
+
+    // --- Sidebar and Chart Logic ---
+    let displayStats, trendData;
+    
     if (!activeForest) {
-        document.getElementById('view-title').innerText = "Service-Wide View";
-        displayData = ptsarData.filter(d => d.Year === year && d.Forest === "Region Total");
+        document.getElementById('view-title').innerText = "Service-Wide (Cumulative)";
         trendData = ptsarData.filter(d => d.Forest === "Region Total");
+        // Sum total for sidebar
+        displayStats = [{
+            CCF_Attainment: trendData.reduce((s, d) => s + (parseFloat(d.CCF_Attainment) || 0), 0),
+            CCF_Offer: trendData.reduce((s, d) => s + (parseFloat(d.CCF_Offer) || 0), 0),
+            MBF_Attainment: trendData.reduce((s, d) => s + (parseFloat(d.MBF_Attainment) || 0), 0)
+        }];
     } else {
         document.getElementById('view-title').innerText = activeForest;
-        displayData = ptsarData.filter(d => d.Year === year && d.Forest === activeCsvKey);
         trendData = ptsarData.filter(d => d.Forest === activeCsvKey);
+        // If snapshot, show yearly. If cumulative, show totals.
+        if (yearVal === "all") {
+            displayStats = [{
+                CCF_Attainment: trendData.reduce((s, d) => s + (parseFloat(d.CCF_Attainment) || 0), 0),
+                CCF_Offer: trendData.reduce((s, d) => s + (parseFloat(d.CCF_Offer) || 0), 0),
+                MBF_Attainment: trendData.reduce((s, d) => s + (parseFloat(d.MBF_Attainment) || 0), 0)
+            }];
+        } else {
+            displayStats = trendData.filter(d => d.Year === parseInt(yearVal));
+        }
     }
-    updateSidebarStats(displayData);
+    
+    updateSidebarStats(displayStats);
     renderTrendChart(trendData);
 }
 

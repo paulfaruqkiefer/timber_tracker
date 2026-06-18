@@ -176,7 +176,7 @@ document.addEventListener('DOMContentLoaded', () => {
             if (!r.ok) throw new Error(`CSV 404: ${r.url}`);
             return r.text();
         }),
-        fetch('shapefiles/national_forest_boundaries.geojson').then(r => {
+        fetch('shapefiles/national_forest_boundaries.json').then(r => {
             if (!r.ok) throw new Error(`JSON 404: ${r.url}`);
             return r.json();
         })

@@ -114,6 +114,15 @@
             <div class="chart-container"><canvas id="sidebarChart"></canvas></div>
         </div>
 
+        <div id="docs-wrapper" style="margin-bottom: 20px;">
+            <h4 style="text-transform: uppercase; font-size: 0.7rem; color: var(--fs-gray);">
+                Timber sale documents
+            </h4>
+            <div id="docs-list" class="data-note">
+                Click a forest to see available timber sale documents.
+            </div>
+        </div>
+
         <div id="toggle-container" style="margin-bottom: 15px;">
             <button id="timber-toggle" class="reset-btn" onclick="toggleTimberSales()" style="background: var(--fs-light-green); border-color: var(--fs-green); margin-bottom:10px;">
                 View Timber Sale Areas
@@ -140,7 +149,7 @@
 </div>
 
 <script>
-let ptsarData = [], geoData = null, chartObj = null, activeForest = null;
+let ptsarData = [], geoData = null, timberDocsIndex = {}, chartObj = null, activeForest = null;
 
 const FOREST_NAME_MAP = {
     "Columbia River Gorge National Scenic Area": "22 Columbia River Gorge National Scenic Area National Forest",
@@ -156,6 +165,69 @@ const FOREST_NAME_MAP = {
     "Green Mountain and Finger Lakes National Forests": "20 Green Mountain National Forest"
 };
 
+const TIMBER_DOC_LABEL_MAP = {
+    "National Forests in Alabama": "alabama",
+    "Allegheny National Forest": "allegheny",
+    "Apache-Sitgreaves National Forests": "apache-sitgreaves",
+    "Bighorn National Forest": "bighorn",
+    "Bitterroot National Forest": "bitterroot",
+    "Boise National Forest": "boise",
+    "Carson National Forest": "carson",
+    "Chequamegon-Nicolet National Forest": "chequamegon-nicolet",
+    "Cherokee National Forest": "cherokee",
+    "Chippewa National Forest": "chippewa",
+    "Cibola National Forest": "cibola",
+    "Coconino National Forest": "coconino",
+    "Colville National Forest": "colville",
+    "Daniel Boone National Forest": "danielboone",
+    "Deschutes National Forest": "deschutes",
+    "Dixie National Forest": "dixie",
+    "Eldorado National Forest": "eldorado",
+    "National Forests in Florida": "florida",
+    "Green Mountain and Finger Lakes National Forests": "gmfl",
+    "Grand Mesa, Uncompahgre and Gunnison National Forests": "gmug",
+    "Hiawatha National Forest": "hiawatha",
+    "Humboldt-Toiyabe National Forest": "humboldt-toiyabe",
+    "Huron-Manistee National Forests": "huron-manistee",
+    "Kisatchie National Forest": "kisatchie",
+    "Klamath National Forest": "klamath",
+    "Kootenai National Forest": "kootenai",
+    "Lassen National Forest": "lassen",
+    "Lincoln National Forest": "lincoln",
+    "Manti-La Sal National Forest": "manti-lasal",
+    "Mark Twain National Forest": "marktwain",
+    "National Forests in Mississippi": "mississippi",
+    "Modoc National Forest": "modoc",
+    "Monongahela National Forest": "monongahela",
+    "Mt. Hood National Forest": "mthood",
+    "Nez Perce-Clearwater National Forests": "nezperceclearwater",
+    "National Forests in North Carolina": "nfsnc",
+    "Ochoco National Forest": "ochoco",
+    "Okanogan-Wenatchee National Forest": "okawen",
+    "Olympic National Forest": "olympic",
+    "Ottawa National Forest": "ottawa",
+    "Ouachita National Forest": "ouachita",
+    "Payette National Forest": "payette",
+    "Rio Grande National Forest": "riogrande",
+    "Salmon-Challis National Forest": "salmon-challis",
+    "Santa Fe National Forest": "santafe",
+    "Sawtooth National Forest": "sawtooth",
+    "Francis Marion and Sumter National Forests": "scnfs",
+    "Shasta-Trinity National Forest": "shasta-trinity",
+    "Shawnee National Forest": "shawnee",
+    "Shoshone National Forest": "shoshone",
+    "Sierra National Forest": "sierra",
+    "Siuslaw National Forest": "siuslaw",
+    "Six Rivers National Forest": "sixrivers",
+    "Superior National Forest": "superior",
+    "Lake Tahoe Basin Management Unit": "tahoe",
+    "National Forests in Texas": "texas",
+    "Umpqua National Forest": "umpqua",
+    "Wallowa-Whitman National Forest": "wallowa-whitman",
+    "White River National Forest": "whiteriver",
+    "Willamette National Forest": "willamette"
+};
+
 function normalizeName(name) {
     if (!name) return "";
     return name.toString().toLowerCase()
@@ -168,27 +240,29 @@ function normalizeName(name) {
 
 mapboxgl.accessToken = 'pk.eyJ1IjoicGtpZWZlciIsImEiOiJjbWxqeWRsNzMwNHV5M3FweTMyemY5emQzIn0.iPzQxYOu7uNUkophKSfiLA';
 
-// WRAPPER: Ensures script runs after HTML is loaded
 document.addEventListener('DOMContentLoaded', () => {
-    // --- REPLACE YOUR OLD PROMISE.ALL WITH THIS ---
     Promise.all([
-        fetch('data/PTSAR_2006_2025_master.csv').then(r => {
-            if (!r.ok) throw new Error(`CSV 404: ${r.url}`);
-            return r.text();
-        }),
-        fetch('shapefiles/national_forest_boundaries.json').then(r => {
-            if (!r.ok) throw new Error(`JSON 404: ${r.url}`);
-            return r.json();
-        })
-    ]).then(([csvText, geoJson]) => {
-        ptsarData = Papa.parse(csvText, { header: true, dynamicTyping: true, skipEmptyLines: true }).data;
-        geoData = geoJson;
-        initYearFilter();
-        initMap();
-    }).catch(err => {
-        // This will now print the specific "CSV 404" or "JSON 404" message
-        console.error("Detailed Load Error:", err);
-    });
+    fetch('data/PTSAR_2006_2025_master.csv').then(r => {
+        if (!r.ok) throw new Error(`CSV 404: ${r.url}`);
+        return r.text();
+    }),
+    fetch('shapefiles/national_forest_boundaries.json').then(r => {
+        if (!r.ok) throw new Error(`JSON 404: ${r.url}`);
+        return r.json();
+    }),
+    fetch('data/timber_docs_index.json').then(r => {
+        if (!r.ok) throw new Error(`DOC INDEX 404: ${r.url}`);
+        return r.json();
+    })
+]).then(([csvText, geoJson, docsIndex]) => {
+    ptsarData = Papa.parse(csvText, { header: true, dynamicTyping: true, skipEmptyLines: true }).data;
+    geoData = geoJson;
+    timberDocsIndex = docsIndex;
+    initYearFilter();
+    initMap();
+}).catch(err => {
+    console.error("Detailed Load Error:", err);
+});
 });
 
 function initYearFilter() {
@@ -437,11 +511,69 @@ function renderTrendChart(trendData) {
     });
 }
 
+function getTimberDocLabelForForest(forestName) {
+    if (!forestName) return null;
+
+    if (TIMBER_DOC_LABEL_MAP[forestName]) {
+        return TIMBER_DOC_LABEL_MAP[forestName];
+    }
+
+    const normalizedForest = normalizeName(forestName);
+
+    const matchingLabel = Object.keys(timberDocsIndex).find(label => {
+        return normalizeName(label) === normalizedForest ||
+               normalizedForest.includes(normalizeName(label)) ||
+               normalizeName(label).includes(normalizedForest);
+    });
+
+    return matchingLabel || null;
+}
+
+function renderForestDocs(forestName) {
+    const container = document.getElementById('docs-list');
+    if (!container) return;
+
+    if (!forestName) {
+        container.innerHTML = "Click a forest to see available timber sale documents.";
+        return;
+    }
+
+    const label = getTimberDocLabelForForest(forestName);
+    const docs = label ? (timberDocsIndex[label] || []) : [];
+
+    if (!docs.length) {
+        container.innerHTML = `<em>No timber sale documents found for ${forestName}.</em>`;
+        return;
+    }
+
+    const shownDocs = docs.slice(0, 25);
+
+    container.innerHTML = `
+        <div style="font-style: normal; color: var(--fs-gray); margin-bottom: 10px;">
+            ${docs.length.toLocaleString()} documents found.
+        </div>
+        ${shownDocs.map(doc => `
+            <div style="margin-bottom: 8px;">
+                <a href="${doc.viewer_url}" target="_blank" rel="noopener noreferrer" style="color: var(--fs-green); font-weight: 700;">
+                    Document ${doc.row_idx}
+                </a>
+            </div>
+        `).join("")}
+        ${docs.length > 25 ? `
+            <div style="font-size: 0.7rem; color: var(--fs-gray); margin-top: 8px;">
+                Showing first 25 documents.
+            </div>
+        ` : ""}
+    `;
+}
+    
 function selectForest(name) {
     activeForest = name;
     const backBtn = document.getElementById('back-button-container');
     if(backBtn) backBtn.classList.remove('nav-hidden');
+    console.log("Clicked forest:", name, "matched label:", getTimberDocLabelForForest(name));
     updateMapAndStats();
+    renderForestDocs(name);
 }
 
 function resetToNational() {
@@ -449,6 +581,7 @@ function resetToNational() {
     const backBtn = document.getElementById('back-button-container');
     if(backBtn) backBtn.classList.add('nav-hidden');
     updateMapAndStats();
+    renderForestDocs(null);
 }
 </script>
 </body>
